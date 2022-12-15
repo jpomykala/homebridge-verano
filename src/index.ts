@@ -1,21 +1,21 @@
-const axios = require('axios')
+import {Service, PlatformAccessory, CharacteristicValue, DynamicPlatformPlugin, Characteristic, UnknownContext} from 'homebridge';
+import axios from 'axios';
 
-module.exports = (api) => {
-  api.registerAccessory('VeranoAccessoryPlugin', VeranoAccessoryPlugin);
-}
+export class VeranoAccessoryPlugin implements DynamicPlatformPlugin {
 
-class VeranoAccessoryPlugin {
+  public readonly Service: typeof Service = this.api.hap.Service;
+  public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
+  private isAuthorized: boolean = false;
 
-  constructor(log, config, api) {
-    this.log = log;
-    this.config = config;
-    this.api = api;
-    this.isAuthorized = false;
-    this.log.debug('Verano Accessory Plugin Loaded');
+  constructor(
+    private readonly platform: VeranoAccessoryPlugin,
+    private readonly accessory: PlatformAccessory,
+  ) {
+    this.platform.debug('Verano Accessory Plugin Loaded');
 
     this.Characteristic = this.api.hap.Characteristic;
 
-    this.informationService = new this.api.hap.Service.AccessoryInformation()
+    this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.api.hap.Characteristic.Manufacturer, "Verano")
       .setCharacteristic(this.api.hap.Characteristic.Model, "VER-24 WiFi");
 
@@ -43,6 +43,10 @@ class VeranoAccessoryPlugin {
 
     this.authorize();
   }
+
+  configureAccessory(accessory: PlatformAccessory<UnknownContext>): void {
+        throw new Error('Method not implemented.');
+    }
 
   getServices() {
     return [

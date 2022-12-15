@@ -1,0 +1,22 @@
+{
+  "pluginAlias": "VeranoAccessoryPlugin",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "username": {
+        "title": "username",
+        "type": "string",
+        "required": true,
+        "default": "Your username"
+      },
+      "password": {
+        "title": "password",
+        "type": "string",
+        "required": true,
+        "default": "Your password"
+      }
+    }
+  }
+}

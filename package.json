@@ -12,11 +12,15 @@
   "bugs": {
     "url": "https://github.com/jpomykala/homebridge-verano/issues"
   },
-  "author": "",
+  "author": "Jakub Pomykała",
   "license": "ISC",
   "dependencies": {
     "homebridge": "^1.6.0",
     "axios": "^0.19.2"
+  },
+  "engines": {
+    "node": ">=0.12.0",
+    "homebridge": ">=0.2.0"
   },
   "keywords": [
     "homebridge-plugin", "verano", "heating"

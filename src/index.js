@@ -53,20 +53,7 @@ class VeranoAccessoryPlugin {
 
   handleCurrentHeatingCoolingStateGet() {
     this.log.debug('Triggered GET CurrentHeatingCoolingState');
-    return this.getTiles()
-      .then(this.extractMode)
-      .then(statusId => {
-
-        if (statusId === 1) {
-          return this.Characteristic.CurrentHeatingCoolingState.COOL;
-        }
-
-        if (statusId === 0) {
-          return this.Characteristic.CurrentHeatingCoolingState.HEAT;
-        }
-
-        return this.Characteristic.CurrentHeatingCoolingState.OFF;
-      });
+    return this.Characteristic.CurrentHeatingCoolingState.HEAT;
   }
 
 
@@ -75,55 +62,42 @@ class VeranoAccessoryPlugin {
    */
   handleTargetHeatingCoolingStateGet() {
     this.log.debug('Triggered GET TargetHeatingCoolingState');
-    return this.getTiles()
-      .then(this.extractMode)
-      .then(statusId => {
-
-        if (statusId === 1) {
-          return this.Characteristic.TargetHeatingCoolingState.COOL;
-        }
-
-        if (statusId === 0) {
-          return this.Characteristic.TargetHeatingCoolingState.HEAT;
-        }
-
-        return this.Characteristic.TargetHeatingCoolingState.OFF;
-      });
+    return this.Characteristic.TargetHeatingCoolingState.HEAT;
   }
 
   /**
    * Handle requests to set the "Target Heating Cooling State" characteristic
    */
   handleTargetHeatingCoolingStateSet(value) {
-    this.log.debug('Triggered SET TargetHeatingCoolingState:', value);
-
-    let targetStatusId = 0;
-    if (value === this.Characteristic.TargetHeatingCoolingState.OFF) {
-      targetStatusId = 0;
-    }
-
-    if (value === this.Characteristic.TargetHeatingCoolingState.HEAT) {
-      targetStatusId = 1;
-    }
-
-    if (value === this.Characteristic.TargetHeatingCoolingState.COOL) {
-      targetStatusId = 0;
-    }
-
-    //verano 1 - heating, 0 - cooling
-    const requestBody = [
-      {
-        ido: 138,
-        params: targetStatusId,
-        module_index: 0
-      }
-    ]
-    axios.post('https://emodul.pl/send_control_data', requestBody, {
-      headers: {
-        'Cookie': this.sessionCookie
-      },
-      withCredentials: true
-    }).then(response => response.data);
+    // this.log.debug('Triggered SET TargetHeatingCoolingState:', value);
+    //
+    // let targetStatusId = 0;
+    // if (value === this.Characteristic.TargetHeatingCoolingState.OFF) {
+    //   targetStatusId = 0;
+    // }
+    //
+    // if (value === this.Characteristic.TargetHeatingCoolingState.HEAT) {
+    //   targetStatusId = 1;
+    // }
+    //
+    // if (value === this.Characteristic.TargetHeatingCoolingState.COOL) {
+    //   targetStatusId = 0;
+    // }
+    //
+    // //verano 1 - heating, 0 - cooling
+    // const requestBody = [
+    //   {
+    //     ido: 138,
+    //     params: targetStatusId,
+    //     module_index: 0
+    //   }
+    // ]
+    // axios.post('https://emodul.pl/send_control_data', requestBody, {
+    //   headers: {
+    //     'Cookie': this.sessionCookie
+    //   },
+    //   withCredentials: true
+    // }).then(response => response.data);
   }
 
   /**

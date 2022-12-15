@@ -13,7 +13,6 @@ class VeranoAccessoryPlugin {
     this.isAuthorized = false;
     this.log.debug('Verano Accessory Plugin Loaded');
 
-    this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
 
     this.informationService = new this.api.hap.Service.AccessoryInformation()
@@ -22,23 +21,23 @@ class VeranoAccessoryPlugin {
 
     this.name = config.name;
 
-    this.thermostatService = new this.Service(this.Service.Thermostat);
+    this.thermostatService = new this.api.hap.Service.Thermostat(this.name);
 
-    this.service.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
+    this.thermostatService.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
       .onGet(this.handleCurrentHeatingCoolingStateGet.bind(this));
 
-    this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
+    this.thermostatService.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
       .onGet(this.handleTargetHeatingCoolingStateGet.bind(this))
       .onSet(this.handleTargetHeatingCoolingStateSet.bind(this));
 
-    this.service.getCharacteristic(this.Characteristic.CurrentTemperature)
+    this.thermostatService.getCharacteristic(this.Characteristic.CurrentTemperature)
       .onGet(this.handleCurrentTemperatureGet.bind(this));
 
-    this.service.getCharacteristic(this.Characteristic.TargetTemperature)
+    this.thermostatService.getCharacteristic(this.Characteristic.TargetTemperature)
       .onGet(this.handleTargetTemperatureGet.bind(this))
       .onSet(this.handleTargetTemperatureSet.bind(this));
 
-    this.service.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
+    this.thermostatService.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
       .onGet(this.handleTemperatureDisplayUnitsGet.bind(this))
       .onSet(this.handleTemperatureDisplayUnitsSet.bind(this));
 
@@ -55,7 +54,19 @@ class VeranoAccessoryPlugin {
   handleCurrentHeatingCoolingStateGet() {
     this.log.debug('Triggered GET CurrentHeatingCoolingState');
     return this.getTiles()
-      .then(this.extractMode);
+      .then(this.extractMode)
+      .then(statusId => {
+
+        if (statusId === 1) {
+          return this.Characteristic.CurrentHeatingCoolingState.COOL;
+        }
+
+        if (statusId === 0) {
+          return this.Characteristic.CurrentHeatingCoolingState.HEAT;
+        }
+
+        return this.Characteristic.CurrentHeatingCoolingState.OFF;
+      });
   }
 
 
@@ -65,7 +76,19 @@ class VeranoAccessoryPlugin {
   handleTargetHeatingCoolingStateGet() {
     this.log.debug('Triggered GET TargetHeatingCoolingState');
     return this.getTiles()
-      .then(this.extractMode);
+      .then(this.extractMode)
+      .then(statusId => {
+
+        if (statusId === 1) {
+          return this.Characteristic.TargetHeatingCoolingState.COOL;
+        }
+
+        if (statusId === 0) {
+          return this.Characteristic.TargetHeatingCoolingState.HEAT;
+        }
+
+        return this.Characteristic.TargetHeatingCoolingState.OFF;
+      });
   }
 
   /**
@@ -98,7 +121,8 @@ class VeranoAccessoryPlugin {
     axios.post('https://emodul.pl/send_control_data', requestBody, {
       headers: {
         'Cookie': this.sessionCookie
-      }
+      },
+      withCredentials: true
     }).then(response => response.data);
   }
 
@@ -136,7 +160,8 @@ class VeranoAccessoryPlugin {
     axios.post('https://emodul.pl/send_control_data', requestBody, {
       headers: {
         'Cookie': this.sessionCookie
-      }
+      },
+      withCredentials: true
     }).then(response => response.data);
   }
 
@@ -157,17 +182,23 @@ class VeranoAccessoryPlugin {
 
   getTiles() {
 
+    this.log.debug('Getting tiles');
     if(!this.isAuthorized) {
-      this.log.debug('Not authorized, cannot get tiles, trying to authorize');
+      this.log.error('Not authorized, cannot get tiles, trying to authorize');
       this.authorize();
       return;
     }
 
-    return axios.get('https://emodul.pl/update_data', {
+    return axios.get('https://emodul.pl/frontend/module_data', {
       headers: {
         'Cookie': this.sessionCookie
-      }
-    }).then(response => response.data.tiles)
+      },
+      withCredentials: true
+    }).then(response => {
+      const tiles = response.data.tiles;
+      this.log.debug('Tiles', tiles);
+      return tiles;
+    })
       .catch(error => {
         this.log.error("Error during tiles fetch", error);
         this.isAuthorized = false;
@@ -185,18 +216,9 @@ class VeranoAccessoryPlugin {
     return foundTile.params.widget2.value / 10;
   }
 
-  async extractMode(tiles) {
-    const foundTile = tiles.filter(tile => tile.id === 61)[0]
-    const statusId = foundTile.params.statusId;
-    if (statusId === 1) {
-      return this.Characteristic.TargetHeatingCoolingState.COOL;
-    }
-
-    if (statusId === 0) {
-      return this.Characteristic.TargetHeatingCoolingState.HEAT;
-    }
-
-    return this.Characteristic.TargetHeatingCoolingState.OFF;
+  extractMode(tiles = []) {
+    const foundTile = tiles.filter(tile => tile?.id === 61)?.[0]
+    return foundTile?.params?.statusId || -1;
   }
 
   async authorize() {

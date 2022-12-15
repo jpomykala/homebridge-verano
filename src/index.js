@@ -53,7 +53,7 @@ class VeranoAccessoryPlugin {
 
   handleCurrentHeatingCoolingStateGet() {
     this.log.debug('Triggered GET CurrentHeatingCoolingState');
-    return this.Characteristic.CurrentHeatingCoolingState.HEAT;
+    return 1;
   }
 
 
@@ -62,7 +62,7 @@ class VeranoAccessoryPlugin {
    */
   handleTargetHeatingCoolingStateGet() {
     this.log.debug('Triggered GET TargetHeatingCoolingState');
-    return this.Characteristic.TargetHeatingCoolingState.HEAT;
+    return 1;
   }
 
   /**

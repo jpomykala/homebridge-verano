@@ -16,6 +16,12 @@
         "type": "string",
         "required": true,
         "default": ""
+      },
+      "name": {
+        "title": "Verano",
+        "type": "string",
+        "required": true,
+        "default": "Verano"
       }
     }
   }

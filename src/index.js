@@ -13,11 +13,14 @@ class VeranoAccessoryPlugin {
     this.isAuthorized = false;
     this.log.debug('Verano Accessory Plugin Loaded');
 
-    // your accessory must have an AccessoryInformation service
+    this.Service = this.api.hap.Service;
+    this.Characteristic = this.api.hap.Characteristic;
+
     this.informationService = new this.api.hap.Service.AccessoryInformation()
       .setCharacteristic(this.api.hap.Characteristic.Manufacturer, "Verano")
       .setCharacteristic(this.api.hap.Characteristic.Model, "VER-24 WiFi");
 
+    this.name = config.name;
 
     this.thermostatService = new this.Service(this.Service.Thermostat);
 

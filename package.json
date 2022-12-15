@@ -1,6 +1,6 @@
 {
   "name": "homebridge-verano",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Plugins for Verano Heating System",
   "displayName": "Verano Heating System",
   "main": "src/index.js",
@@ -15,7 +15,6 @@
   "author": "Jakub Pomykała",
   "license": "ISC",
   "dependencies": {
-    "homebridge": "^1.6.0",
     "axios": "^0.19.2"
   },
   "engines": {

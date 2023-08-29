@@ -1,4 +1,4 @@
-import {AccessoryConfig, AccessoryPlugin, API, CharacteristicValue, Controller, Logging, Service} from 'homebridge';
+import {AccessoryConfig, AccessoryPlugin, API, Controller, Logging, Service} from 'homebridge';
 import axios from "axios";
 
 module.exports = (api: API) => {
@@ -12,7 +12,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly TURN_ON_OFF_TEMPERATURE: number = 10;
     private readonly informationService: any;
     private readonly name: string;
-    private readonly heaterCooler: Service;
+    private readonly service: Service;
 
     private isOn: boolean;
     private isAuthorized: boolean;
@@ -24,11 +24,14 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         private readonly config: AccessoryConfig,
         private readonly api: API,
     ) {
+        this.log.debug('Verano accessory plugin initializing');
         this.log = log;
         this.config = config;
+        this.name = config.name;
         this.api = api;
         this.isAuthorized = false;
-        this.log.debug('Verano accessory plugin initializing');
+        this.sessionCookie = '';
+        this.isOn = false;
 
         this.Characteristic = this.api.hap.Characteristic;
 
@@ -36,27 +39,75 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             .setCharacteristic(this.api.hap.Characteristic.Manufacturer, "Verano")
             .setCharacteristic(this.api.hap.Characteristic.Model, "VER-24 WiFi");
 
-        this.name = config.name;
+        this.service = new this.api.hap.Service.Thermostat(this.name);
 
-        this.heaterCooler = new this.api.hap.Service.HeaterCooler(this.name);
+        this.service.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
+            .on('get', (callback) => {
+                const value = this.isOn ? this.Characteristic.CurrentHeatingCoolingState.HEAT : this.Characteristic.CurrentHeatingCoolingState.OFF;
+                callback(null, value);
+            });
 
-        this.heaterCooler.getCharacteristic(this.Characteristic.Active)
-            .onGet(this.handleActiveGet.bind(this))
-            .onSet(this.handleActiveSet.bind(this));
+        this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
+            .on('get', (callback) => {
+                this.fetchTargetTemperature()
+                    .then(targetTemperature => {
+                        this.isOn = targetTemperature > this.TURN_ON_OFF_TEMPERATURE;
+                        const value = this.isOn ? this.Characteristic.TargetHeatingCoolingState.HEAT : this.Characteristic.TargetHeatingCoolingState.OFF;
+                        callback(null, value);
+                    });
+            })
+            .on('set', (value, callback) => {
+                this.isOn = value === this.Characteristic.TargetHeatingCoolingState.OFF;
+                if (this.isOn) {
+                    callback(null);
+                    return;
+                }
+                this.log.info('Turning off');
+                this.requestTemperatureChange(this.TURN_ON_OFF_TEMPERATURE)
+                    .then(() => callback(null))
+                    .catch(error => callback(error));
 
-        this.heaterCooler.getCharacteristic(this.Characteristic.TargetHeaterCoolerState)
-            .onGet(this.handleTargetTemperatureGet.bind(this))
-            .onSet(this.handleTargetTemperatureSet.bind(this));
 
-        this.heaterCooler.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
-            .onGet(this.handleTemperatureDisplayUnitsGet.bind(this))
-            .onSet(this.handleTemperatureDisplayUnitsSet.bind(this));
+            });
 
-        this.heaterCooler.getCharacteristic(this.Characteristic.CurrentTemperature)
-            .onGet(this.handleCurrentTemperatureGet.bind(this));
+        this.service.getCharacteristic(this.Characteristic.CurrentTemperature)
+            .on('get', (callback) => {
+                this.log.debug('Triggered GET CurrentTemperature');
+                this.fetchCurrentTemperature()
+                    .then(currentTemperature => {
+                        callback(null, currentTemperature);
+                    })
+                    .catch(error => {
+                        this.log.error('Error during current temperature fetch', error);
+                        callback(error);
+                    });
+            });
 
-        this.sessionCookie = '';
-        this.isOn = false;
+        this.service.getCharacteristic(this.Characteristic.TargetTemperature)
+            .on('get', (callback) => {
+                this.log.debug('Triggered GET TargetTemperature');
+                this.fetchTargetTemperature()
+                    .then(targetTemperature => {
+                        callback(null, targetTemperature);
+                    })
+                    .catch(error => {
+                        this.log.error('Error during current temperature fetch', error);
+                        callback(error);
+                    });
+            })
+            .on('set', (value, callback) => {
+                this.log.debug('Triggered SET TargetTemperature:', value);
+                this.requestTemperatureChange(value as number)
+                    .then(() => callback(null))
+                    .catch(error => callback(error));
+            });
+
+        this.service.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
+            .on('get', (callback) => {
+                callback(null, this.Characteristic.TemperatureDisplayUnits.CELSIUS);
+            })
+            .on('set', (value, callback) => {});
+
         this.log.debug('Verano accessory plugin initialized');
         this.requestAuthorization();
     }
@@ -68,53 +119,12 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     getServices(): Service[] {
         return [
             this.informationService,
-            this.heaterCooler,
+            this.service,
         ];
     }
 
     getControllers?(): Controller[] {
         return [];
-    }
-
-    async handleActiveGet() {
-        const targetTemperature = await this.fetchTargetTemperature();
-        this.isOn = targetTemperature > this.TURN_ON_OFF_TEMPERATURE;
-        this.log.debug('Triggered GET Target Temperature:', targetTemperature, "isOn:", this.isOn);
-        return this.isOn ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE;
-
-    }
-
-    async handleActiveSet(value: CharacteristicValue) {
-        this.log.debug('Triggered SET Active:', value);
-        this.isOn = value === this.Characteristic.Active.ACTIVE;
-        if (!this.isOn) {
-            this.log.info('Turning off');
-            await this.requestTemperatureChange(this.TURN_ON_OFF_TEMPERATURE);
-        }
-    }
-
-    async handleCurrentTemperatureGet() {
-        this.log.debug('Triggered GET CurrentTemperature');
-        return await this.fetchCurrentTemperature();
-    }
-
-    async handleTargetTemperatureGet() {
-        this.log.debug('Triggered GET TargetTemperature');
-        return await this.fetchTargetTemperature();
-    }
-
-    async handleTargetTemperatureSet(targetTemperature) {
-        this.log.debug('Triggered SET TargetTemperature:', targetTemperature);
-        await this.requestTemperatureChange(targetTemperature);
-    }
-
-    handleTemperatureDisplayUnitsGet() {
-        this.log.debug('Triggered GET TemperatureDisplayUnits (NOP)');
-        return this.Characteristic.TemperatureDisplayUnits.CELSIUS;
-    }
-
-    handleTemperatureDisplayUnitsSet(value) {
-        this.log.debug('Triggered SET TemperatureDisplayUnits (NOP):', value);
     }
 
     private async fetchTargetTemperature() {
@@ -146,7 +156,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             .get('https://emodul.pl/frontend/module_data', config)
             .then(response => {
                 const tiles = response.data.tiles;
-                this.log.debug('Data tiles', tiles);
+                this.log.info("Fetched", tiles.length, "data tiles");
                 return tiles;
             }).catch(error => {
                 this.log.error("Error during tiles fetch", error);

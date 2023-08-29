@@ -1,4 +1,4 @@
-import { AccessoryConfig, AccessoryPlugin, API, CharacteristicValue, Controller, ControllerServiceMap, Logging, Service } from 'homebridge';
+import { AccessoryConfig, AccessoryPlugin, API, Controller, Logging, Service } from 'homebridge';
 export declare class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly log;
     private readonly config;
@@ -7,7 +7,7 @@ export declare class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly TURN_ON_OFF_TEMPERATURE;
     private readonly informationService;
     private readonly name;
-    private readonly heaterCooler;
+    private readonly service;
     private isOn;
     private isAuthorized;
     private sessionCookie;
@@ -15,14 +15,7 @@ export declare class VeranoAccessoryPlugin implements AccessoryPlugin {
     constructor(log: Logging, config: AccessoryConfig, api: API);
     identify?(): void;
     getServices(): Service[];
-    getControllers?(): Controller<ControllerServiceMap>[];
-    handleActiveGet(): Promise<any>;
-    handleActiveSet(value: CharacteristicValue): Promise<void>;
-    handleCurrentTemperatureGet(): Promise<number>;
-    handleTargetTemperatureGet(): Promise<number>;
-    handleTargetTemperatureSet(targetTemperature: any): Promise<void>;
-    handleTemperatureDisplayUnitsGet(): any;
-    handleTemperatureDisplayUnitsSet(value: any): void;
+    getControllers?(): Controller[];
     private fetchTargetTemperature;
     private fetchCurrentTemperature;
     private fetchDataTiles;

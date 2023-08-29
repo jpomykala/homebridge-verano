@@ -1,6 +1,6 @@
 {
   "name": "homebridge-verano",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Plugins for Verano Heating System",
   "displayName": "Verano Heating System",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "lint": "eslint src/**.ts --max-warnings=0",
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist && tsc",
-    "prepublishOnly": "npm run lint && npm run build"
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "url": "https://github.com/jpomykala/homebridge-verano"

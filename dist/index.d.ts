@@ -8,6 +8,7 @@ export declare class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly informationService;
     private readonly name;
     private readonly service;
+    private cachedState;
     private isOn;
     private isAuthorized;
     private sessionCookie;
@@ -18,6 +19,7 @@ export declare class VeranoAccessoryPlugin implements AccessoryPlugin {
     getControllers?(): Controller[];
     private fetchTargetTemperature;
     private fetchCurrentTemperature;
+    private clearCache;
     private fetchDataTiles;
     private requestAuthorization;
     private requestTemperatureChange;

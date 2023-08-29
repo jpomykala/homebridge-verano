@@ -34,6 +34,14 @@ class VeranoAccessoryPlugin {
             callback(null, value);
         });
         this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
+            .setProps({
+            minValue: this.Characteristic.TargetHeatingCoolingState.OFF,
+            maxValue: this.Characteristic.TargetHeatingCoolingState.HEAT,
+            validValues: [
+                this.Characteristic.TargetHeatingCoolingState.OFF,
+                this.Characteristic.TargetHeatingCoolingState.HEAT
+            ]
+        })
             .on('get', (callback) => {
             this.fetchTargetTemperature()
                 .then(targetTemperature => {
@@ -66,6 +74,11 @@ class VeranoAccessoryPlugin {
             });
         });
         this.service.getCharacteristic(this.Characteristic.TargetTemperature)
+            .setProps({
+            minValue: 10,
+            maxValue: 30,
+            minStep: 0.5
+        })
             .on('get', (callback) => {
             this.log.debug('Triggered GET TargetTemperature');
             this.fetchTargetTemperature()
@@ -87,7 +100,8 @@ class VeranoAccessoryPlugin {
             .on('get', (callback) => {
             callback(null, this.Characteristic.TemperatureDisplayUnits.CELSIUS);
         })
-            .on('set', (value, callback) => { });
+            .on('set', (value, callback) => {
+        });
         this.log.debug('Verano accessory plugin initialized');
         this.requestAuthorization();
     }

@@ -15,79 +15,79 @@ class VeranoAccessoryPlugin {
         this.api = api;
         this.TEMPERATURE_DIVIDER = 10;
         this.TURN_ON_OFF_TEMPERATURE = 10;
-        this.log.debug('Verano accessory plugin initializing');
+        this.thermostatState = {
+            currentTemperature: 0,
+            targetTemperature: 0,
+            heating: false
+        };
         this.log = log;
+        this.log.info('Verano accessory plugin initializing');
         this.config = config;
         this.name = config.name;
         this.api = api;
         this.isAuthorized = false;
         this.sessionCookie = '';
-        this.isOn = false;
         this.Characteristic = this.api.hap.Characteristic;
         this.informationService = new this.api.hap.Service.AccessoryInformation()
             .setCharacteristic(this.api.hap.Characteristic.Manufacturer, "Verano")
             .setCharacteristic(this.api.hap.Characteristic.Model, "VER-24 WiFi");
         this.service = new this.api.hap.Service.Thermostat(this.name);
+        // GET CURRENT STATE
         this.service.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
             .on('get', (callback) => {
-            this.log.debug('Triggered GET CurrentHeatingCoolingState');
-            const value = this.isOn ? this.Characteristic.CurrentHeatingCoolingState.HEAT : this.Characteristic.CurrentHeatingCoolingState.OFF;
-            callback(null, value);
+            this.log.debug('Get CurrentHeatingCoolingState');
+            const heatingState = this.thermostatState.heating ? this.Characteristic.CurrentHeatingCoolingState.HEAT : this.Characteristic.CurrentHeatingCoolingState.OFF;
+            callback(null, heatingState);
         });
+        // GET TARGET STATE
         this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
             .setProps({
             validValues: [
                 this.Characteristic.TargetHeatingCoolingState.OFF,
                 this.Characteristic.TargetHeatingCoolingState.HEAT
             ]
-        });
-        this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
+        })
             .on('get', (callback) => {
-            this.log.debug('Triggered GET TargetHeatingCoolingState');
-            this.fetchTargetTemperature()
-                .then(targetTemperature => {
-                this.isOn = targetTemperature > this.TURN_ON_OFF_TEMPERATURE;
-                const value = this.isOn ? this.Characteristic.TargetHeatingCoolingState.HEAT : this.Characteristic.TargetHeatingCoolingState.OFF;
-                callback(null, value);
-            });
+            this.log.debug('Get TargetHeatingCoolingState');
+            this.requestThermostatState()
+                .then(thermostatState => {
+                const heatingState = thermostatState.heating ? this.Characteristic.TargetHeatingCoolingState.HEAT : this.Characteristic.TargetHeatingCoolingState.OFF;
+                callback(null, heatingState);
+            })
+                .catch(error => callback(error));
         })
             .on('set', (value, callback) => {
-            this.isOn = value === this.Characteristic.TargetHeatingCoolingState.HEAT;
-            if (this.isOn) {
+            this.thermostatState.heating = value === this.Characteristic.TargetHeatingCoolingState.HEAT;
+            if (this.thermostatState.heating) {
                 callback(null);
                 return;
             }
-            this.log.info('Turning off');
+            this.log.info('Turning off heating...');
             this.requestTemperatureChange(this.TURN_ON_OFF_TEMPERATURE)
-                .then(() => callback(null))
+                .then(() => {
+                this.log.info('Heating turned off');
+                callback(null);
+            })
                 .catch(error => callback(error));
         });
+        // GET TEMPERATURE
         this.service.getCharacteristic(this.Characteristic.CurrentTemperature)
             .on('get', (callback) => {
-            this.log.debug('Triggered GET CurrentTemperature');
-            this.fetchCurrentTemperature()
-                .then(currentTemperature => {
-                callback(null, currentTemperature);
-            })
-                .catch(error => {
-                this.log.error('Error during current temperature fetch', error);
-                callback(error);
-            });
+            this.log.debug('Get CurrentTemperature');
+            this.requestThermostatState()
+                .then(thermostatState => callback(null, thermostatState.currentTemperature))
+                .catch(error => callback(error));
         });
+        // GET TARGET TEMPERATURE
         this.service.getCharacteristic(this.Characteristic.TargetTemperature)
             .on('get', (callback) => {
-            this.log.debug('Triggered GET TargetTemperature');
-            this.fetchTargetTemperature()
-                .then(targetTemperature => {
-                callback(null, targetTemperature);
-            })
-                .catch(error => {
-                this.log.error('Error during current temperature fetch', error);
-                callback(error);
-            });
+            this.log.debug('Get TargetTemperature');
+            this.requestThermostatState()
+                .then(thermostatState => callback(null, thermostatState.targetTemperature))
+                .catch(error => callback(error));
         })
             .on('set', (value, callback) => {
-            this.log.debug('Triggered SET TargetTemperature:', value);
+            this.log.debug('Set TargetTemperature:', value);
             this.requestTemperatureChange(value)
                 .then(() => callback(null))
                 .catch(error => callback(error));
@@ -103,11 +103,7 @@ class VeranoAccessoryPlugin {
         })
             .on('set', (value, callback) => {
         });
-        setInterval(() => {
-            this.clearCache();
-        }, 5000);
-        this.log.debug('Verano accessory plugin initialized');
-        this.requestAuthorization();
+        this.log.info('Verano accessory plugin initialized');
     }
     identify() {
         this.log('Identify!');
@@ -121,25 +117,21 @@ class VeranoAccessoryPlugin {
     getControllers() {
         return [];
     }
-    async fetchTargetTemperature() {
+    async requestThermostatState() {
         const tiles = await this.fetchDataTiles();
         const foundTile = tiles.filter(tile => tile.id === 58)[0];
-        return foundTile.params.widget1.value / this.TEMPERATURE_DIVIDER;
-    }
-    async fetchCurrentTemperature() {
-        const tiles = await this.fetchDataTiles();
-        const foundTile = tiles.filter(tile => tile.id === 58)[0];
-        return foundTile.params.widget2.value / this.TEMPERATURE_DIVIDER;
-    }
-    clearCache() {
-        this.cachedState = null;
+        const targetTemperature = foundTile.params.widget1.value / this.TEMPERATURE_DIVIDER;
+        const currentTemperature = foundTile.params.widget2.value / this.TEMPERATURE_DIVIDER;
+        this.thermostatState = {
+            currentTemperature: currentTemperature,
+            targetTemperature: targetTemperature,
+            heating: targetTemperature > this.TURN_ON_OFF_TEMPERATURE
+        };
+        this.log.info('Thermostat state:', this.thermostatState);
+        return this.thermostatState;
     }
     async fetchDataTiles() {
-        this.log.info('Fetching data tiles');
-        if (this.cachedState) {
-            this.log.info('Returning cached state');
-            return this.cachedState;
-        }
+        this.log.debug('Fetching data');
         if (!this.isAuthorized) {
             this.log.error('Not authorized, cannot get tiles, trying to authorize');
             await this.requestAuthorization();
@@ -148,17 +140,24 @@ class VeranoAccessoryPlugin {
             headers: {
                 'Cookie': this.sessionCookie
             },
-            withCredentials: true
+            withCredentials: true,
         };
         return axios_1.default
             .get('https://emodul.pl/frontend/module_data', config)
             .then(response => {
-            const tiles = response.data.tiles;
-            this.log.info("Fetched", tiles.length, "data tiles");
-            this.cachedState = tiles;
-            return tiles;
-        }).catch(error => {
-            this.log.error("Error during tiles fetch", error);
+            this.log.debug('Successfully fetched data');
+            return response.data.tiles;
+        })
+            .catch(error => {
+            if (error.response) {
+                this.log.error("Error during tiles fetch");
+                this.log.error("Status:", error.response.status);
+                this.log.error("Response:");
+                this.log.error(error.response.data);
+            }
+            else {
+                this.log.error("Error during tiles fetch", error);
+            }
             this.isAuthorized = false;
             throw error;
         });
@@ -175,20 +174,20 @@ class VeranoAccessoryPlugin {
         return axios_1.default
             .post('https://emodul.pl/login', requestBody)
             .then(loginResponse => {
-            this.log.info('Successfully authorized');
+            this.log.info('Successfully authorized', requestBody.username);
             const cookies = loginResponse.headers['set-cookie'];
             this.sessionCookie = cookies.filter(cookie => cookie.includes('session'))[0];
             this.isAuthorized = true;
             return loginResponse;
         })
             .catch(error => {
-            this.log.error("Error during authorization", error);
+            this.log.error("Error during authorization", requestBody.username, error);
             this.isAuthorized = false;
             throw error;
         });
     }
     async requestTemperatureChange(targetTemperature) {
-        this.log.info('Changing temperature to', targetTemperature);
+        this.log.info('Changing temperature to', targetTemperature + '°C');
         const requestBody = [
             {
                 ido: 139,
@@ -205,7 +204,7 @@ class VeranoAccessoryPlugin {
         return axios_1.default
             .post('https://emodul.pl/send_control_data', requestBody, config)
             .then(response => {
-            this.log.info('Successfully changed temperature');
+            this.log.info('Successfully changed temperature to', targetTemperature + '°C');
             return response === null || response === void 0 ? void 0 : response.data;
         })
             .catch(error => {

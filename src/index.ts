@@ -24,7 +24,6 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         targetTemperature: 0,
         heating: false
     };
-    private lastFetchTime: number = -1;
 
     private isAuthorized: boolean;
     private sessionCookie: string;
@@ -42,9 +41,6 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         this.api = api;
         this.isAuthorized = false;
         this.sessionCookie = '';
-
-        this.requestThermostatState()
-            .then(thermostatState => this.log.info('Fetched initial thermostat state', thermostatState))
 
         this.Characteristic = this.api.hap.Characteristic;
 
@@ -157,19 +153,12 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             targetTemperature: targetTemperature,
             heating: targetTemperature > this.TURN_ON_OFF_TEMPERATURE
         };
+        this.log.info('Thermostat state:', this.thermostatState);
         return this.thermostatState;
     }
 
     private async fetchDataTiles() {
-
-        const currentTime = new Date().getTime();
-        if (this.lastFetchTime > 0 && currentTime - this.lastFetchTime < 2500) {
-            this.log.debug('Returning cached thermostat state', this.thermostatState);
-            return this.thermostatState;
-        }
-        this.log.debug('Fetching data tiles...');
-        this.lastFetchTime = currentTime;
-
+        this.log.debug('Fetching data');
         if (!this.isAuthorized) {
             this.log.error('Not authorized, cannot get tiles, trying to authorize');
             await this.requestAuthorization();
@@ -184,12 +173,18 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         return axios
             .get('https://emodul.pl/frontend/module_data', config)
             .then(response => {
-                const tiles = response.data.tiles;
-                this.log.debug("Fetched", tiles.length, "data tiles");
-                this.log.debug(tiles);
-                return tiles;
-            }).catch(error => {
-                this.log.error("Error during tiles fetch", error);
+                this.log.debug('Successfully fetched data');
+                return response.data.tiles;
+            })
+            .catch(error => {
+                if (error.response) {
+                    this.log.error("Error during tiles fetch");
+                    this.log.error("Status:", error.response.status);
+                    this.log.error("Response:");
+                    this.log.error(error.response.data);
+                } else {
+                    this.log.error("Error during tiles fetch", error);
+                }
                 this.isAuthorized = false;
                 throw error;
             });
@@ -221,7 +216,6 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
     private async requestTemperatureChange(targetTemperature: number) {
         this.log.info('Changing temperature to', targetTemperature + '°C');
-        this.lastFetchTime = -1;
         const requestBody = [
             {
                 ido: 139,

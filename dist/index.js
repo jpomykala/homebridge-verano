@@ -21,12 +21,13 @@ class VeranoAccessoryPlugin {
             heating: false
         };
         this.log = log;
-        this.log.info('Verano accessory plugin initializing');
+        this.log.info('Initializing VeranoAccessoryPlugin');
         this.config = config;
         this.name = config.name;
         this.api = api;
         this.isAuthorized = false;
         this.sessionCookie = '';
+        this.requestAuthorization();
         this.Characteristic = this.api.hap.Characteristic;
         this.informationService = new this.api.hap.Service.AccessoryInformation()
             .setCharacteristic(this.api.hap.Characteristic.Manufacturer, "Verano")
@@ -103,7 +104,6 @@ class VeranoAccessoryPlugin {
         })
             .on('set', (value, callback) => {
         });
-        this.log.info('Verano accessory plugin initialized');
     }
     identify() {
         this.log('Identify!');

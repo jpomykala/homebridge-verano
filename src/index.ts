@@ -35,12 +35,14 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         private readonly api: API,
     ) {
         this.log = log;
-        this.log.info('Verano accessory plugin initializing');
+        this.log.info('Initializing VeranoAccessoryPlugin');
         this.config = config;
         this.name = config.name;
         this.api = api;
         this.isAuthorized = false;
         this.sessionCookie = '';
+
+        this.requestAuthorization();
 
         this.Characteristic = this.api.hap.Characteristic;
 
@@ -125,7 +127,6 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             })
             .on('set', (value, callback) => {
             });
-        this.log.info('Verano accessory plugin initialized');
     }
 
     identify?(): void {

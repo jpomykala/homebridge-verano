@@ -73,6 +73,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly credentials: { username: string; password: string };
     private pendingSetTimer?: NodeJS.Timeout;
     private pendingTargetC?: number;
+    private lastRequestedTargetC?: number;
 
     constructor(
       private readonly log: Logging,
@@ -185,6 +186,8 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
               // Update local state & HomeKit immediately for responsive UI
               this.thermostatState.targetTemperature = v;
               this.thermostatState.heating = v > this.cfg.offThresholdC;
+              // Track optimistic target to avoid flicker until server confirms
+              this.lastRequestedTargetC = v;
               this.pushStateToHomeKit();
 
               // Debounce network write: wait up to 2s, then send the last value
@@ -199,7 +202,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
                   if (typeof finalValue === 'number') {
                       await this.setTargetTemperatureC(finalValue);
                   }
-              }, 2000);
+              }, 1000);
           });
 
         // Celsius only
@@ -354,8 +357,39 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
     private async refreshStateSafe() {
         try {
-            const state = await this.requestThermostatState();
-            this.pushStateToHomeKit(state);
+            const fetched = await this.requestThermostatState();
+
+            // Preserve optimistic target until the server echoes it back (handles slow backends)
+            const expected = this.lastRequestedTargetC;
+            const fetchedClamped = this.clampAndStep(fetched.targetTemperature, this.cfg.minC, this.cfg.maxC, this.cfg.stepC);
+            const expectedClamped = expected !== undefined
+                ? this.clampAndStep(expected, this.cfg.minC, this.cfg.maxC, this.cfg.stepC)
+                : undefined;
+            const serverMatches = expectedClamped !== undefined && Math.abs(fetchedClamped - expectedClamped) < this.cfg.stepC / 2;
+
+            const shouldPreserveLocalTarget = Boolean(
+                this.pendingSetTimer ||
+                this.writeInFlight ||
+                (expected !== undefined && !serverMatches),
+            );
+
+            const nextTarget = shouldPreserveLocalTarget
+              ? this.thermostatState.targetTemperature
+              : fetched.targetTemperature;
+
+            const nextState: ThermostatState = {
+                currentTemperature: fetched.currentTemperature,
+                targetTemperature: nextTarget,
+                heating: nextTarget > this.cfg.offThresholdC,
+            };
+
+            this.thermostatState = nextState;
+            this.pushStateToHomeKit(nextState);
+
+            // Once server matches, clear optimistic marker
+            if (serverMatches) {
+                this.lastRequestedTargetC = undefined;
+            }
         } catch (e) {
             this.log.debug('Refresh failed:', (e as Error)?.message ?? e);
         }
@@ -384,6 +418,8 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         this.writeInFlight = true;
         const bounded = this.clampAndStep(targetC, this.cfg.minC, this.cfg.maxC, this.cfg.stepC);
         this.log.info('Setting target temperature to', `${bounded}°C`);
+        // Track optimistic target
+        this.lastRequestedTargetC = bounded;
         try {
             await this.ensureSession();
             await this.requestTemperatureChange(bounded);

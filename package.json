@@ -1,6 +1,6 @@
 {
   "name": "homebridge-verano",
-  "version": "3.0.3",
+  "version": "3.0.6",
   "description": "Plugin for Verano Heating System",
   "displayName": "Homebridge Verano WiFi",
   "main": "dist/index.js",

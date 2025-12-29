@@ -22,6 +22,54 @@
         "type": "string",
         "required": true,
         "default": "Verano"
+      },
+      "tileId": {
+        "title": "Tile ID (target/current tile)",
+        "type": "number",
+        "required": false,
+        "default": 58
+      },
+      "setpointIdo": {
+        "title": "Setpoint IDO (control)",
+        "type": "number",
+        "required": false,
+        "default": 139
+      },
+      "temperatureDivider": {
+        "title": "Temperature Divider",
+        "type": "number",
+        "required": false,
+        "default": 10
+      },
+      "offThresholdC": {
+        "title": "Off Threshold (°C)",
+        "type": "number",
+        "required": false,
+        "default": 10
+      },
+      "minC": {
+        "title": "Minimum Temperature (°C)",
+        "type": "number",
+        "required": false,
+        "default": 10
+      },
+      "maxC": {
+        "title": "Maximum Temperature (°C)",
+        "type": "number",
+        "required": false,
+        "default": 30
+      },
+      "stepC": {
+        "title": "Temperature Step (°C)",
+        "type": "number",
+        "required": false,
+        "default": 0.5
+      },
+      "pollIntervalSec": {
+        "title": "Polling Interval (seconds)",
+        "type": "number",
+        "required": false,
+        "default": 30
       }
     }
   }

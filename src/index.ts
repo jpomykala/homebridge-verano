@@ -71,6 +71,8 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     };
 
     private readonly credentials: { username: string; password: string };
+    private pendingSetTimer?: NodeJS.Timeout;
+    private pendingTargetC?: number;
 
     constructor(
       private readonly log: Logging,
@@ -97,6 +99,9 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             stepC: raw.stepC ?? 0.5,
             pollIntervalSec: raw.pollIntervalSec ?? 30,
         };
+
+        // Ensure initial targetTemperature respects min constraints to avoid HomeKit warnings
+        this.thermostatState.targetTemperature = this.cfg.minC;
 
         // Axios instance with base URL and timeout
         this.axios = axios.create({
@@ -129,7 +134,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
         // Current Heating/Cooling State
         this.service.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
-          .onGet(async () => {
+          .onGet(() => {
               return this.thermostatState.heating
                 ? this.Characteristic.CurrentHeatingCoolingState.HEAT
                 : this.Characteristic.CurrentHeatingCoolingState.OFF;
@@ -141,9 +146,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
                   this.Characteristic.TargetHeatingCoolingState.OFF,
                   this.Characteristic.TargetHeatingCoolingState.HEAT,
               ]})
-          .onGet(async () => {
-              await this.ensureSession();
-              await this.refreshStateSafe();
+          .onGet(() => {
               return this.thermostatState.heating
                 ? this.Characteristic.TargetHeatingCoolingState.HEAT
                 : this.Characteristic.TargetHeatingCoolingState.OFF;
@@ -161,9 +164,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         // Current Temperature
         this.service.getCharacteristic(this.Characteristic.CurrentTemperature)
           .setProps({ minStep: 0.1 })
-          .onGet(async () => {
-              await this.ensureSession();
-              await this.refreshStateSafe();
+          .onGet(() => {
               return this.thermostatState.currentTemperature;
           });
 
@@ -174,22 +175,37 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
               maxValue: this.cfg.maxC,
               minStep: this.cfg.stepC,
           })
-          .onGet(async () => {
-              await this.ensureSession();
-              await this.refreshStateSafe();
-              return this.thermostatState.targetTemperature;
+          .onGet(() => {
+              // Return a clamped value to never violate HomeKit constraints
+              return this.clampAndStep(this.thermostatState.targetTemperature, this.cfg.minC, this.cfg.maxC, this.cfg.stepC);
           })
           .onSet(async (value) => {
               const v = this.clampAndStep(Number(value), this.cfg.minC, this.cfg.maxC, this.cfg.stepC);
-              await this.setTargetTemperatureC(v);
+
+              // Update local state & HomeKit immediately for responsive UI
+              this.thermostatState.targetTemperature = v;
               this.thermostatState.heating = v > this.cfg.offThresholdC;
               this.pushStateToHomeKit();
+
+              // Debounce network write: wait up to 2s, then send the last value
+              if (this.pendingSetTimer) {
+                  clearTimeout(this.pendingSetTimer);
+              }
+              this.pendingTargetC = v;
+              this.pendingSetTimer = setTimeout(async () => {
+                  const finalValue = this.pendingTargetC;
+                  this.pendingSetTimer = undefined;
+                  this.pendingTargetC = undefined;
+                  if (typeof finalValue === 'number') {
+                      await this.setTargetTemperatureC(finalValue);
+                  }
+              }, 2000);
           });
 
         // Celsius only
         this.service.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
-          .onGet(async () => this.Characteristic.TemperatureDisplayUnits.CELSIUS)
-          .onSet(async () => { /* no-op, force Celsius */ });
+          .onGet(() => this.Characteristic.TemperatureDisplayUnits.CELSIUS)
+          .onSet(() => { /* no-op, force Celsius */ });
 
         // Defer network until platform is ready
         this.api.on('didFinishLaunching', async () => {
@@ -221,6 +237,20 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     }
 
     // --- Helpers ---
+
+    private async executeWithReauth<T>(operation: () => Promise<T>): Promise<T> {
+        try {
+            return await operation();
+        } catch (err) {
+            const error = err as any;
+            if (error?.response?.status === 401 || error?.response?.status === 403) {
+                this.isAuthorized = false;
+                await this.requestAuthorization();
+                return operation();
+            }
+            throw err;
+        }
+    }
 
     private startPolling() {
         if (this.pollTimer) clearInterval(this.pollTimer);
@@ -278,23 +308,13 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     }
 
     private async fetchDataTiles(): Promise<Tile[]> {
-        const res = await this.axios.get<ModuleDataResponse>('/frontend/module_data');
-
-        if (res.status === 401 || res.status === 403) {
-            this.isAuthorized = false;
-            await this.requestAuthorization();
-            const retry = await this.axios.get<ModuleDataResponse>('/frontend/module_data');
-            if (retry.status !== 200) {
-                throw new Error(`Tiles fetch failed after reauth: HTTP ${retry.status}`);
+        return this.executeWithReauth(async () => {
+            const res = await this.axios.get<ModuleDataResponse>('/frontend/module_data');
+            if (res.status !== 200) {
+                throw new Error(`Tiles fetch failed: HTTP ${res.status}`);
             }
-            return retry.data.tiles;
-        }
-
-        if (res.status !== 200) {
-            throw new Error(`Tiles fetch failed: HTTP ${res.status}`);
-        }
-
-        return res.data.tiles;
+            return res.data.tiles;
+        });
     }
 
     private async requestTemperatureChange(targetC: number) {
@@ -306,23 +326,13 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             },
         ];
 
-        const res = await this.axios.post('/send_control_data', body);
-
-        if (res.status === 401 || res.status === 403) {
-            this.isAuthorized = false;
-            await this.requestAuthorization();
-            const retry = await this.axios.post('/send_control_data', body);
-            if (retry.status < 200 || retry.status >= 300) {
-                throw new Error(`Temperature change failed after reauth: HTTP ${retry.status}`);
+        return this.executeWithReauth(async () => {
+            const res = await this.axios.post('/send_control_data', body);
+            if (res.status < 200 || res.status >= 300) {
+                throw new Error(`Temperature change failed: HTTP ${res.status}`);
             }
-            return retry.data;
-        }
-
-        if (res.status < 200 || res.status >= 300) {
-            throw new Error(`Temperature change failed: HTTP ${res.status}`);
-        }
-
-        return res.data;
+            return res.data;
+        });
     }
 
     private async requestThermostatState(): Promise<ThermostatState> {
@@ -352,12 +362,13 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     }
 
     private pushStateToHomeKit(state: ThermostatState = this.thermostatState) {
+        const clampedTarget = this.clampAndStep(state.targetTemperature, this.cfg.minC, this.cfg.maxC, this.cfg.stepC);
         this.service.updateCharacteristic(this.Characteristic.CurrentTemperature, state.currentTemperature);
         this.service.updateCharacteristic(
           this.Characteristic.CurrentHeatingCoolingState,
           state.heating ? this.Characteristic.CurrentHeatingCoolingState.HEAT : this.Characteristic.CurrentHeatingCoolingState.OFF,
         );
-        this.service.updateCharacteristic(this.Characteristic.TargetTemperature, state.targetTemperature);
+        this.service.updateCharacteristic(this.Characteristic.TargetTemperature, clampedTarget);
         this.service.updateCharacteristic(
           this.Characteristic.TargetHeatingCoolingState,
           state.heating ? this.Characteristic.TargetHeatingCoolingState.HEAT : this.Characteristic.TargetHeatingCoolingState.OFF,

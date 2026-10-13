@@ -36,7 +36,7 @@ Optional tuning parameters are shown with defaults.
       "minC": 10,
       "maxC": 30,
       "stepC": 0.5,
-      "pollIntervalSec": 30
+      "pollIntervalMin": 5
     }
   ]
 }

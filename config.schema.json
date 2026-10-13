@@ -65,11 +65,11 @@
         "required": false,
         "default": 0.5
       },
-      "pollIntervalSec": {
-        "title": "Polling Interval (seconds)",
+      "pollIntervalMin": {
+        "title": "Polling Interval (minutes)",
         "type": "number",
         "required": false,
-        "default": 30
+        "default": 5
       }
     }
   }

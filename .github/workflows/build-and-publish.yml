@@ -27,10 +27,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Build
         run: npm run build
 
+      # PRs only build and lint; publishing happens on pushes to main/master and v* tags
       - name: Publish to npm
+        if: github.event_name == 'push'
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

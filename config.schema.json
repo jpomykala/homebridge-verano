@@ -64,6 +64,15 @@
         "type": "number",
         "required": false,
         "default": 0.5
+      },
+      "heatOnOffsetC": {
+        "title": "HEAT On Offset (°C)",
+        "description": "Turning HEAT on sets the target to the room temperature plus this offset (0–5 °C).",
+        "type": "number",
+        "required": false,
+        "default": 3,
+        "minimum": 0,
+        "maximum": 5
       }
     }
   }

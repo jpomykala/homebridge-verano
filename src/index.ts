@@ -15,6 +15,7 @@ interface VeranoAccessoryConfig extends AccessoryConfig {
     minC?: number;                    // default: 10
     maxC?: number;                    // default: 30
     stepC?: number;                   // default: 0.5
+    heatOnOffsetC?: number;           // default: 3, range 0..5
 }
 
 interface ThermostatState {
@@ -27,8 +28,6 @@ interface ThermostatState {
 const REFRESH_INTERVAL_MS = 10 * 1000;
 // eModul reports the old setpoint for a few seconds after a write; keep showing the written one meanwhile
 const HOLD_AFTER_WRITE_MS = 60 * 1000;
-// Turning HEAT on sets the target to the room temperature plus this much
-const HEAT_ON_OFFSET_C = 3;
 
 export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
@@ -38,6 +37,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     private readonly cfg: Required<Pick<
         VeranoAccessoryConfig,
         'username' | 'password' | 'tileId' | 'setpointIdo' | 'temperatureDivider' | 'offThresholdC' | 'minC' | 'maxC' | 'stepC'
+        | 'heatOnOffsetC'
     >>;
 
     private thermostatState: ThermostatState = {
@@ -72,6 +72,8 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             minC: raw.minC ?? 10,
             maxC: raw.maxC ?? 30,
             stepC: raw.stepC ?? 0.5,
+            // Turning HEAT on sets the target to the room temperature plus this much
+            heatOnOffsetC: Math.min(Math.max(raw.heatOnOffsetC ?? 3, 0), 5),
         };
         this.thermostatState.targetTemperature = this.cfg.minC;
 
@@ -105,7 +107,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
                     }
                     // Stay above the off threshold, otherwise the heater would still count as off
                     const targetC = Math.max(
-                        this.roundToStep(this.thermostatState.currentTemperature + HEAT_ON_OFFSET_C),
+                        this.roundToStep(this.thermostatState.currentTemperature + this.cfg.heatOnOffsetC),
                         this.cfg.offThresholdC + this.cfg.stepC,
                     );
                     this.log.info('Turning on heating...');

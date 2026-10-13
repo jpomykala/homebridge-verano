@@ -34,7 +34,8 @@ Optional tuning parameters are shown with defaults.
       "offThresholdC": 10,
       "minC": 10,
       "maxC": 30,
-      "stepC": 0.5
+      "stepC": 0.5,
+      "heatOnOffsetC": 3 // 0–5, HEAT sets room temperature + this offset
     }
   ]
 }

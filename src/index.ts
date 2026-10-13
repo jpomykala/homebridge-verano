@@ -23,6 +23,11 @@ interface ThermostatState {
     heating: boolean;
 }
 
+// HomeKit reads are answered from the cache; eModul is asked again at most this often
+const REFRESH_INTERVAL_MS = 10 * 1000;
+// eModul reports the old setpoint for a few seconds after a write; keep showing the written one meanwhile
+const HOLD_AFTER_WRITE_MS = 60 * 1000;
+
 export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
     private readonly informationService: Service;
@@ -38,6 +43,12 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         targetTemperature: 0,
         heating: false,
     };
+
+    private hasState = false;
+    private lastRefreshAt = 0;
+    private refreshPromise?: Promise<void>;
+    private heldTargetC?: number;
+    private holdUntil = 0;
 
     private isAuthorized = false;
     private sessionCookie = '';
@@ -74,12 +85,7 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
         // GET CURRENT STATE
         this.service.getCharacteristic(this.Characteristic.CurrentHeatingCoolingState)
-            .onGet(() => {
-                this.log.debug('Get CurrentHeatingCoolingState');
-                return this.thermostatState.heating
-                    ? this.Characteristic.CurrentHeatingCoolingState.HEAT
-                    : this.Characteristic.CurrentHeatingCoolingState.OFF;
-            });
+            .onGet(() => this.currentHeatingCoolingState(this.readState()));
 
         // GET TARGET STATE
         this.service.getCharacteristic(this.Characteristic.TargetHeatingCoolingState)
@@ -89,30 +95,20 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
                     this.Characteristic.TargetHeatingCoolingState.HEAT,
                 ],
             })
-            .onGet(async () => {
-                this.log.debug('Get TargetHeatingCoolingState');
-                const thermostatState = await this.withHapError(() => this.requestThermostatState());
-                return thermostatState.heating
-                    ? this.Characteristic.TargetHeatingCoolingState.HEAT
-                    : this.Characteristic.TargetHeatingCoolingState.OFF;
-            })
+            .onGet(() => this.targetHeatingCoolingState(this.readState()))
             .onSet(async (value) => {
                 this.thermostatState.heating = value === this.Characteristic.TargetHeatingCoolingState.HEAT;
                 if (this.thermostatState.heating) {
                     return;
                 }
                 this.log.info('Turning off heating...');
-                await this.withHapError(() => this.requestTemperatureChange(this.cfg.offThresholdC));
+                await this.setTargetTemperature(this.cfg.offThresholdC);
                 this.log.info('Heating turned off');
             });
 
         // GET TEMPERATURE
         this.service.getCharacteristic(this.Characteristic.CurrentTemperature)
-            .onGet(async () => {
-                this.log.debug('Get CurrentTemperature');
-                const thermostatState = await this.withHapError(() => this.requestThermostatState());
-                return thermostatState.currentTemperature;
-            });
+            .onGet(() => this.readState().currentTemperature);
 
         // GET TARGET TEMPERATURE
         this.service.getCharacteristic(this.Characteristic.TargetTemperature)
@@ -121,19 +117,17 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
                 maxValue: this.cfg.maxC,
                 minStep: this.cfg.stepC,
             })
-            .onGet(async () => {
-                this.log.debug('Get TargetTemperature');
-                const thermostatState = await this.withHapError(() => this.requestThermostatState());
-                return this.clamp(thermostatState.targetTemperature);
-            })
+            .onGet(() => this.clamp(this.readState().targetTemperature))
             .onSet(async (value) => {
                 this.log.debug('Set TargetTemperature:', value);
-                await this.withHapError(() => this.requestTemperatureChange(value as number));
+                await this.setTargetTemperature(value as number);
             });
 
         this.service.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
             .onGet(() => this.Characteristic.TemperatureDisplayUnits.CELSIUS)
             .onSet(() => { /* Celsius only */ });
+
+        this.api.on('didFinishLaunching', () => this.refreshInBackground());
     }
 
     identify?(): void {
@@ -151,6 +145,86 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         return [];
     }
 
+    // Answers HomeKit right away from the cache and refreshes it in the background
+    private readState(): ThermostatState {
+        this.refreshInBackground();
+        if (!this.hasState) {
+            throw new this.api.hap.HapStatusError(this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+        }
+        return this.thermostatState;
+    }
+
+    private refreshInBackground() {
+        if (this.refreshPromise || Date.now() - this.lastRefreshAt < REFRESH_INTERVAL_MS) {
+            return;
+        }
+        this.lastRefreshAt = Date.now();
+        this.refreshPromise = this.refreshState()
+            .catch(() => { /* logged in fetchDataTiles */ })
+            .finally(() => {
+                this.refreshPromise = undefined;
+            });
+    }
+
+    private async refreshState() {
+        const fetched = await this.requestThermostatState();
+        let targetTemperature = fetched.targetTemperature;
+        if (this.heldTargetC !== undefined) {
+            if (Math.abs(targetTemperature - this.heldTargetC) < 0.01 || Date.now() > this.holdUntil) {
+                this.heldTargetC = undefined;
+            } else {
+                targetTemperature = this.heldTargetC;
+            }
+        }
+        const next: ThermostatState = {
+            currentTemperature: fetched.currentTemperature,
+            targetTemperature: targetTemperature,
+            heating: targetTemperature > this.cfg.offThresholdC,
+        };
+        const changed = !this.hasState
+            || next.currentTemperature !== this.thermostatState.currentTemperature
+            || next.targetTemperature !== this.thermostatState.targetTemperature
+            || next.heating !== this.thermostatState.heating;
+        this.thermostatState = next;
+        this.hasState = true;
+        if (changed) {
+            this.log.info('Thermostat state:', next);
+            this.pushStateToHomeKit();
+        }
+    }
+
+    private async setTargetTemperature(targetTemperature: number) {
+        await this.withHapError(() => this.requestTemperatureChange(targetTemperature));
+        this.heldTargetC = targetTemperature;
+        this.holdUntil = Date.now() + HOLD_AFTER_WRITE_MS;
+        this.thermostatState = {
+            ...this.thermostatState,
+            targetTemperature: targetTemperature,
+            heating: targetTemperature > this.cfg.offThresholdC,
+        };
+        this.pushStateToHomeKit();
+    }
+
+    private pushStateToHomeKit() {
+        const state = this.thermostatState;
+        this.service.updateCharacteristic(this.Characteristic.CurrentTemperature, state.currentTemperature);
+        this.service.updateCharacteristic(this.Characteristic.TargetTemperature, this.clamp(state.targetTemperature));
+        this.service.updateCharacteristic(this.Characteristic.CurrentHeatingCoolingState, this.currentHeatingCoolingState(state));
+        this.service.updateCharacteristic(this.Characteristic.TargetHeatingCoolingState, this.targetHeatingCoolingState(state));
+    }
+
+    private currentHeatingCoolingState(state: ThermostatState) {
+        return state.heating
+            ? this.Characteristic.CurrentHeatingCoolingState.HEAT
+            : this.Characteristic.CurrentHeatingCoolingState.OFF;
+    }
+
+    private targetHeatingCoolingState(state: ThermostatState) {
+        return state.heating
+            ? this.Characteristic.TargetHeatingCoolingState.HEAT
+            : this.Characteristic.TargetHeatingCoolingState.OFF;
+    }
+
     // Keeps values inside the range declared in setProps, so HomeKit doesn't warn about them
     private clamp(value: number) {
         return Math.min(Math.max(value, this.cfg.minC), this.cfg.maxC);
@@ -165,7 +239,8 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         }
     }
 
-    private async requestThermostatState() {
+    // Pure fetch: refreshState compares the result with the cached state
+    private async requestThermostatState(): Promise<ThermostatState> {
         const tiles = await this.fetchDataTiles();
         const foundTile = tiles.filter(tile => tile.id === this.cfg.tileId)[0];
         if (!foundTile) {
@@ -174,13 +249,11 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
         }
         const targetTemperature = foundTile.params.widget1.value / this.cfg.temperatureDivider;
         const currentTemperature = foundTile.params.widget2.value / this.cfg.temperatureDivider;
-        this.thermostatState = {
+        return {
             currentTemperature: currentTemperature,
             targetTemperature: targetTemperature,
             heating: targetTemperature > this.cfg.offThresholdC,
         };
-        this.log.info('Thermostat state:', this.thermostatState);
-        return this.thermostatState;
     }
 
     private async fetchDataTiles() {

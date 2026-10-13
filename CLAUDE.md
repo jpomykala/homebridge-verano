@@ -19,7 +19,7 @@ There are no tests in this repo. `dist/` is gitignored; the npm tarball contents
 
 ## Release / CI
 
-`.github/workflows/build-and-publish.yml` runs `npm ci && npm run lint && npm run build` on pushes to `main`, `v*` tags and PRs, and `npm publish` on **every push** (not on PRs). Publishing fails if `package.json` `version` was not bumped, so bump the version for any change meant to ship.
+`.github/workflows/build-and-publish.yml` runs `npm ci && npm run lint && npm run build` on pushes to `main`, `v*` tags and PRs, and `npm publish` on **every push** (not on PRs) via npm Trusted Publishing (OIDC, `id-token: write`; no `NPM_TOKEN`). Publishing fails if `package.json` `version` was not bumped, so bump the version for any change meant to ship.
 
 ## Architecture
 

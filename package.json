@@ -16,7 +16,7 @@
     "prepublishOnly": "npm run build"
   },
   "repository": {
-    "url": "https://github.com/jpomykala/homebridge-verano"
+    "url": "git+https://github.com/jpomykala/homebridge-verano.git"
   },
   "bugs": {
     "url": "https://github.com/jpomykala/homebridge-verano/issues"

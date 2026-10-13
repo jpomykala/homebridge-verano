@@ -27,6 +27,8 @@ interface ThermostatState {
 const REFRESH_INTERVAL_MS = 10 * 1000;
 // eModul reports the old setpoint for a few seconds after a write; keep showing the written one meanwhile
 const HOLD_AFTER_WRITE_MS = 60 * 1000;
+// Turning HEAT on sets the target to the room temperature plus this much
+const HEAT_ON_OFFSET_C = 3;
 
 export class VeranoAccessoryPlugin implements AccessoryPlugin {
 
@@ -97,8 +99,18 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
             })
             .onGet(() => this.targetHeatingCoolingState(this.readState()))
             .onSet(async (value) => {
-                this.thermostatState.heating = value === this.Characteristic.TargetHeatingCoolingState.HEAT;
-                if (this.thermostatState.heating) {
+                if (value === this.Characteristic.TargetHeatingCoolingState.HEAT) {
+                    if (this.thermostatState.heating) {
+                        return;
+                    }
+                    // Stay above the off threshold, otherwise the heater would still count as off
+                    const targetC = Math.max(
+                        this.roundToStep(this.thermostatState.currentTemperature + HEAT_ON_OFFSET_C),
+                        this.cfg.offThresholdC + this.cfg.stepC,
+                    );
+                    this.log.info('Turning on heating...');
+                    await this.setTargetTemperature(targetC);
+                    this.log.info('Heating turned on');
                     return;
                 }
                 this.log.info('Turning off heating...');
@@ -228,6 +240,10 @@ export class VeranoAccessoryPlugin implements AccessoryPlugin {
     // Keeps values inside the range declared in setProps, so HomeKit doesn't warn about them
     private clamp(value: number) {
         return Math.min(Math.max(value, this.cfg.minC), this.cfg.maxC);
+    }
+
+    private roundToStep(value: number) {
+        return this.clamp(Number((Math.round(value / this.cfg.stepC) * this.cfg.stepC).toFixed(2)));
     }
 
     // HomeKit shows "No Response" instead of an unhandled error

@@ -23,22 +23,11 @@ There are no tests in this repo. `dist/` is gitignored; the npm tarball contents
 
 ## Architecture
 
-Everything lives in `src/index.ts` (single `VeranoAccessoryPlugin` class).
+Everything lives in `src/index.ts` (single `VeranoAccessoryPlugin` class). Since 3.2.0 the code is deliberately back to the simple 2.1.4 logic (the last version confirmed working against emodul.pl); the 3.0–3.1 rewrite (optimistic state, debounced writes, background refresh) broke temperature changes and was dropped. Prefer small, verified changes on top of this base.
 
-- **Config**: `VeranoAccessoryConfig` fields are normalized with defaults into `this.cfg` in the constructor. When adding/changing an option, keep three places in sync: the interface + defaults in `src/index.ts`, `config.schema.json` (Homebridge UI), and the README example.
-- **emodul.pl API**:
-  - `POST /login` → session cookie extracted from `set-cookie` and attached to every request via an axios request interceptor.
-  - `GET /frontend/module_data` → `tiles[]`; the tile with `id === tileId` holds target temp in `params.widget1.value` and current temp in `params.widget2.value`, both scaled by `temperatureDivider`.
-  - `POST /send_control_data` with `[{ ido: setpointIdo, params: round(targetC * temperatureDivider), module_index: 0 }]` sets the target.
-  - axios uses `validateStatus` accepting `<500`, so HTTP errors never throw — status codes are checked manually. `executeWithReauth` logs in if needed and, on a 401/403 *response status*, re-logs in and retries once. Concurrent logins share `authPromise`.
-- **Heating state is derived**, not read: `heating = targetTemperature > offThresholdC`. Turning OFF in HomeKit writes `offThresholdC` as the setpoint; turning HEAT on sets target to current + 2 °C (always above the threshold); re-sending the current mode is a no-op. `CurrentHeatingCoolingState` reports HEAT only while current < target (otherwise idle).
-- **State sync / anti-flicker** (the subtle part — see recent commits "Fix temperature flickering"):
-  - `thermostatState` is a local cache. `onGet` handlers go through `readState()`, which returns it immediately, triggers a background refresh (throttled to one per 30 s, guarded by `refreshInProgress`) and throws `SERVICE_COMMUNICATION_FAILURE` ("No Response") if no successful fetch happened in the last 3 poll intervals.
-  - `onSet` handlers never await the network: `applyTargetLocally()` updates state + HomeKit optimistically and debounces the write (1 s, `pendingSetTimer`/`pendingTargetC`); `flushPendingWrite()` sends it, and a value arriving during an in-flight write is sent afterwards rather than dropped.
-  - `lastRequestedTargetC` holds the optimistic target; `refreshStateSafe()` keeps the local target while a debounce is pending, a write is in flight, or the server hasn't echoed the value yet (gives up after 2 min or on a failed write). `requestThermostatState()` must stay a pure fetch, since this comparison relies on the old local state.
-  - emodul.pl is a web frontend and changes take ~2–10 s (request timeout 20 s). A HomeKit change is "fire and forget": for up to `OPTIMISTIC_TARGET_TTL_MS` (5 min from the HomeKit set) the plugin retries failed writes (3/10/30/60 s…), re-reads the state after an accepted write until eModul echoes the setpoint, and resends it if it stays unapplied for `RESEND_AFTER_MS`. After the deadline `giveUp()`/`refreshStateSafe()` show the real eModul value (`lastServerTargetC` if the cloud is down). All of this runs on one `reconcileTimer`, cleared by every new HomeKit value; refreshes share one in-flight `refreshPromise`.
-  - Data requests use `maxRedirects: 0`; a 3xx (redirect to the login page) or a 200 without `tiles[]` is treated as an expired session in `executeWithReauth`.
-  - HEAT restores `lastHeatTargetC` (last setpoint above the threshold). A temperature written while an OFF is still debounced (scenes send both) is only remembered, not applied.
-  - Logging is meant to explain the heater's state: initial state, write accepted/confirmed/not confirmed, setpoint changed outside HomeKit, one warning per outage plus an error when HomeKit switches to "No Response".
-  - All target values sent to HomeKit go through `step()` (clamp to `minC..maxC`, round to `stepC`) to avoid HomeKit range warnings.
-- **Lifecycle**: network work starts on `didFinishLaunching` (polling every `pollIntervalMin` minutes is started first, so the plugin recovers even if the initial refresh fails); polling stops on `shutdown`.
+- **Config**: optional fields of `VeranoAccessoryConfig` are normalized with defaults (identical to the old hardcoded values) into `this.cfg`. When adding/changing an option, keep three places in sync: the interface + defaults in `src/index.ts`, `config.schema.json` (Homebridge UI), and the README example.
+- **emodul.pl API** (plain `axios` 0.19 calls, same requests as 2.1.4):
+  - `POST /login` with `rememberMe: true, languageId: 'en'` → the `set-cookie` entry containing `session` is sent as the `Cookie` header.
+  - `GET /frontend/module_data` → `tiles[]`; the tile with `id === tileId` holds target temp in `params.widget1.value` and current temp in `params.widget2.value`, both scaled by `temperatureDivider`. A failed fetch resets `isAuthorized`, so the next request logs in again.
+  - `POST /send_control_data` with `[{ ido: setpointIdo, params: targetC * temperatureDivider, module_index: 0 }]` sets the target.
+- **HomeKit**: `onGet` for target state / current / target temperature fetches from emodul.pl on every read; `onSet` for the target temperature awaits the write. Errors become `SERVICE_COMMUNICATION_FAILURE` ("No Response"). `heating = targetTemperature > offThresholdC`; OFF writes `offThresholdC` as the setpoint, HEAT only flips the local flag.

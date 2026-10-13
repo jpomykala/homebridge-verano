@@ -5,8 +5,7 @@ Homebridge accessory plugin to control Verano VER-24 WiFi heaters via emodul.pl.
 Features:
 - Thermostat service (heat/off)
 - Current and target temperature
-- Periodic polling to keep HomeKit in sync
-- Robust login with cookie reuse and auto-reauth
+- Automatic re-login when the session expires
 
 ## Install
 
@@ -35,8 +34,7 @@ Optional tuning parameters are shown with defaults.
       "offThresholdC": 10,
       "minC": 10,
       "maxC": 30,
-      "stepC": 0.5,
-      "pollIntervalMin": 5
+      "stepC": 0.5
     }
   ]
 }

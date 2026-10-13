@@ -1,6 +1,6 @@
 {
   "name": "homebridge-verano",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Plugin for Verano Heating System",
   "displayName": "Homebridge Verano WiFi",
   "main": "dist/index.js",
@@ -26,8 +26,8 @@
     "axios": "^0.19.2"
   },
   "engines": {
-    "node": "^18.17.0",
-    "homebridge": "^1.6.0"
+    "node": "^18.17.0 || ^20.0.0 || ^22.0.0 || ^24.0.0",
+    "homebridge": "^1.6.0 || ^2.0.0-beta.0"
   },
   "devDependencies": {
     "@types/node": "^18.16.20",
